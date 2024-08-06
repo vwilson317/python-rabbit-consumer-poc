@@ -1,26 +1,34 @@
-import pika
+import asyncio
+import aio_pika
 import os
 
 rabbitmq_host = os.getenv('RABBITMQ_HOST', 'localhost')
 rabbitmq_port = int(os.getenv('RABBITMQ_PORT', 5672))
 rabbitmq_user = os.getenv('RABBITMQ_USER', 'user')
 rabbitmq_pass = os.getenv('RABBITMQ_PASS', 'password')
+queue_name = 'request'
 
-queue_name = os.getenv('QUEUE_NAME', 'request')
+async def process_message(message: aio_pika.IncomingMessage):
+    async with message.process():
+        # Add your processing logic here
+        print(f" [x] Received {message.body.decode()}")
 
-credentials = pika.PlainCredentials(rabbitmq_user, rabbitmq_pass)
-parameters = pika.ConnectionParameters(rabbitmq_host, rabbitmq_port, '/', credentials)
+async def main():
+    connection = await aio_pika.connect_robust(
+        host=rabbitmq_host,
+        port=rabbitmq_port,
+        login=rabbitmq_user,
+        password=rabbitmq_pass
+    )
 
-connection = pika.BlockingConnection(parameters)
-channel = connection.channel()
+    async with connection:
+        channel = await connection.channel()
+        queue = await channel.declare_queue(queue_name, durable=False)
 
-channel.queue_declare(queue=queue_name)
+        await queue.consume(process_message)
 
-def callback(ch, method, properties, body):
-    ## todo: add processing logic
-    print(f" [x] Received {body}")
+        print(' [*] Waiting for messages. To exit press CTRL+C')
+        await asyncio.Future()  # Run forever
 
-channel.basic_consume(queue=queue_name, on_message_callback=callback, auto_ack=True)
-
-print(' [*] Waiting for messages. To exit press CTRL+C')
-channel.start_consuming()
+if __name__ == "__main__":
+    asyncio.run(main())
